@@ -1,4 +1,4 @@
-﻿<!doctype html>
+<!doctype html>
 <html lang="ko">
 <head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
@@ -23,7 +23,7 @@
 <div class="viewer-back" id="imageViewer" role="dialog" aria-modal="true" aria-label="확대 사진 보기"><button class="viewer-close" id="viewerClose" aria-label="닫기">×</button><img id="viewerImage" alt="확대된 사진"><p id="viewerCaption"></p></div>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="https://cdn.jsdelivr.net/npm/tus-js-client@4/dist/tus.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/exifr/dist/lite.umd.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/exifr/dist/full.umd.js"></script>
 <script>
 // Supabase Dashboard > Project Settings > API 에서 Project URL과 Publishable key를 입력하세요.
 const SUPABASE_URL='https://fwfebgaqswhxcsyrduwr.supabase.co';
@@ -64,7 +64,19 @@ $('.nav').addEventListener('click',e=>{const b=e.target.closest('[data-view]');i
 $('#addPhoto').onclick=()=>openPhoto();$('#editAbout').onclick=()=>{if(!session){alert('관리자 로그인이 필요합니다.');return}$('#aboutInput').value=aboutText;show('#aboutModal')};
 $('#adminButton').onclick=async()=>{if(session){await supabaseClient.auth.signOut();session=null;setAdminUI()}else show('#loginModal')};
 $('#loginForm').onsubmit=async e=>{e.preventDefault();$('#loginMessage').textContent='로그인 중…';const {data,error}=await supabaseClient.auth.signInWithPassword({email:$('#loginEmail').value.trim(),password:$('#loginPassword').value});if(error){$('#loginMessage').textContent='로그인할 수 없습니다. 이메일과 비밀번호를 확인해 주세요.';return}session=data.session;hideAll();setAdminUI()};
-$('#imageFile').onchange=async e=>{const file=e.target.files[0];if(!file){pendingUploadPath=null;$('#photoUploadStatus').textContent='';return}if(!file.type.startsWith('image/')||file.size>MAX_FILE_BYTES){alert('50MB 이하의 이미지 파일을 선택해 주세요.');e.target.value='';pendingUploadPath=null;return}pendingUploadPath=makeUploadPath(file);$('#photoUploadStatus').textContent=`선택됨: ${(file.size/1024/1024).toFixed(1)}MB · EXIF 정보를 확인하는 중…`;try{const exif=await window.exifr.parse(file,['Make','Model','LensModel','LensID','ISO','FNumber','ExposureTime']);if($('#imageFile').files[0]!==file)return;let found=false;if(exif){const make=String(exif.Make||'').trim(),model=String(exif.Model||'').trim();if(model){$('#cameraModel').value=make&&!model.toLowerCase().startsWith(make.toLowerCase())?`${make} ${model}`:model;found=true}else if(make){$('#cameraModel').value=make;found=true}const lens=exif.LensModel||exif.LensID;if(lens){$('#lensModel').value=String(lens).trim();found=true}if(Number.isFinite(Number(exif.ISO))&&Number(exif.ISO)>0){$('#photoIso').value=String(Math.round(Number(exif.ISO)));found=true}if(Number.isFinite(Number(exif.FNumber))&&Number(exif.FNumber)>0){$('#photoAperture').value=String(Number(exif.FNumber));found=true}const fraction=shutterFraction(Number(exif.ExposureTime));if(fraction){$('#shutterNumerator').value=String(fraction.numerator);$('#shutterDenominator').value=String(fraction.denominator);found=true}}$('#photoUploadStatus').textContent=found?'촬영 정보를 자동 입력했습니다. 내용을 확인하고 필요한 항목을 고쳐 주세요.':'촬영 정보가 사진에 없거나 읽을 수 없습니다. 직접 입력해 주세요.'}catch(error){console.warn('EXIF metadata could not be read',error);$('#photoUploadStatus').textContent='촬영 정보를 읽지 못했습니다. 직접 입력해 주세요.'}};
+$('#imageFile').onchange=async e=>{
+const file=e.target.files[0];if(!file){pendingUploadPath=null;$('#photoUploadStatus').textContent='';return}
+if(!file.type.startsWith('image/')||file.size>MAX_FILE_BYTES){alert('50MB 이하의 이미지 파일을 선택해 주세요.');e.target.value='';pendingUploadPath=null;return}
+pendingUploadPath=makeUploadPath(file);$('#photoUploadStatus').textContent=`선택됨: ${(file.size/1024/1024).toFixed(1)}MB · EXIF 정보를 확인하는 중…`;
+try{
+const exif=await window.exifr.parse(file,['Make','Model','UniqueCameraModel','LensModel','LensID','LensSpecification','ISO','ISOSpeedRatings','PhotographicSensitivity','FNumber','ApertureValue','ExposureTime','ShutterSpeedValue']);if($('#imageFile').files[0]!==file)return;let found=false;
+if(exif){const make=String(exif.Make||'').trim(),model=String(exif.Model||exif.UniqueCameraModel||'').trim();if(model){$('#cameraModel').value=make&&!model.toLowerCase().startsWith(make.toLowerCase())?`${make} ${model}`:model;found=true}else if(make){$('#cameraModel').value=make;found=true}
+let lens=exif.LensModel||exif.LensID;if(!lens&&Array.isArray(exif.LensSpecification)&&exif.LensSpecification.length>=4){const [minFocal,maxFocal,minAperture,maxAperture]=exif.LensSpecification.map(Number);if([minFocal,maxFocal,minAperture,maxAperture].every(Number.isFinite))lens=`${minFocal}-${maxFocal}mm F${minAperture}-${maxAperture}`}if(lens){$('#lensModel').value=String(lens).trim();found=true}
+const iso=[exif.ISO,exif.PhotographicSensitivity,exif.ISOSpeedRatings].map(Number).find(n=>Number.isFinite(n)&&n>0);if(iso){$('#photoIso').value=String(Math.round(iso));found=true}
+let aperture=Number(exif.FNumber);if(!(Number.isFinite(aperture)&&aperture>0)){const av=Number(exif.ApertureValue);if(Number.isFinite(av))aperture=Math.pow(2,av/2)}if(Number.isFinite(aperture)&&aperture>0){$('#photoAperture').value=String(aperture);found=true}
+let seconds=Number(exif.ExposureTime);if(!(Number.isFinite(seconds)&&seconds>0)){const tv=Number(exif.ShutterSpeedValue);if(Number.isFinite(tv))seconds=Math.pow(2,-tv)}const fraction=shutterFraction(seconds);if(fraction){$('#shutterNumerator').value=String(fraction.numerator);$('#shutterDenominator').value=String(fraction.denominator);found=true}}
+$('#photoUploadStatus').textContent=found?'촬영 정보를 자동 입력했습니다. 내용을 확인하고 필요한 항목을 고쳐 주세요.':'촬영 정보가 사진에 없거나 읽을 수 없습니다. 직접 입력해 주세요.'
+}catch(error){console.warn('EXIF metadata could not be read',error);$('#photoUploadStatus').textContent='촬영 정보를 읽지 못했습니다. 직접 입력해 주세요.'}};
 $('#photoForm').onsubmit=savePhoto;$('#aboutForm').onsubmit=saveAbout;$$('.close').forEach(b=>b.onclick=hideAll);$$('.modal-back').forEach(m=>m.onclick=e=>{if(e.target===m)hideAll()});$('#viewerClose').onclick=()=>$('#imageViewer').classList.remove('open');$('#imageViewer').onclick=e=>{if(e.target===$('#imageViewer'))$('#imageViewer').classList.remove('open')};document.addEventListener('keydown',e=>{if(e.key==='Escape'){hideAll();$('#imageViewer').classList.remove('open')}});$('#year').textContent=new Date().getFullYear();
 supabaseClient.auth.getSession().then(({data})=>{session=data.session;setAdminUI();loadContent()});supabaseClient.auth.onAuthStateChange((_event,newSession)=>{session=newSession;setAdminUI()});
 </script></body></html>
